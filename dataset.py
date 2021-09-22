@@ -9,6 +9,7 @@ class IMDBReviewDataset(torch.utils.data.Dataset):
         self.max_len = max_len
 
     def __len__(self):
+        return len(self.reviews)
         
 
     def __getitem__(self, idx):
