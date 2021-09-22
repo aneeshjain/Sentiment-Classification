@@ -28,4 +28,5 @@ def check_token_dist(review_list):
         token_len.append(len(tokens))
     
     ax = sns.distplot(token_len)
+    plt.xlabel("Token Count")
     plt.show()
