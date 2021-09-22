@@ -1,5 +1,7 @@
 import csv
-
+from transformers import BertTokenizer
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def read_imdb(data_path):
   texts = []
@@ -15,3 +17,15 @@ def read_imdb(data_path):
             texts.append(row[0])
             labels.append(int(row[1]))
     return texts, labels
+
+
+def check_token_dist(review_list):
+    token_len = []
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+    for sent in review_list:
+        tokens = tokenizer.encode(sent, max_length = 512)
+        token_len.append(len(tokens))
+    
+    ax = sns.distplot(token_len)
+    plt.show()
