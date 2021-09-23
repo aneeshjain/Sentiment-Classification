@@ -3,6 +3,10 @@ from transformers import BertTokenizer
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from absl import flags
+
+FLAGS = flags.FLAGS
+
 def read_imdb(data_path):
   texts = []
   labels = []
@@ -21,7 +25,7 @@ def read_imdb(data_path):
 
 def check_token_dist(review_list):
     token_len = []
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = BertTokenizer.from_pretrained(FLAGS.pre_trained_model_name)
 
     for sent in review_list:
         tokens = tokenizer.encode(sent, max_length = 512)
