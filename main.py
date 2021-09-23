@@ -68,6 +68,30 @@ def train_epoch(
   return accuracy, mean_loss
 
 
+def eval(model, data_loader, loss_fn, device, n_examples):
+  model = model.eval()
+
+  losses = []
+  correct_predictions = []
+
+  with torch.no_grad():
+    with tqdm(data_loader, unit="batch") as tepoch:
+      for batch in tepoch:
+        input_ids = batch['input_ids'].to(device)
+        attention_mask = batch['attention_mask'].to(device)
+        labels = batch['label'].to(device)
+
+        outputs = model(input_ids = input_ids, attention_mask = attention_mask)
+
+        _, preds = torch.max(outputs, dim = 1)
+
+        loss = loss_fn(outputs, labels)
+
+        correct_predictions += torch.sum(preds == labels)
+        losses.append(loss.item())
+  return correct_predictions.double()/n_examples, np.mean(losses)
+  
+
 
 
 def main(argv):
