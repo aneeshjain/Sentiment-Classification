@@ -13,6 +13,9 @@ import os
 from model import SentimentClassifier
 from dataset import createDataLoader
 from utils import read_imdb
+from sklearn.metrics import f1_score
+import logging
+import time
 
 
 FLAGS = flags.FLAGS
@@ -23,7 +26,11 @@ flags.DEFINE_float('lr', 2e-5, 'Learning Rate')
 flags.DEFINE_integer('epochs', 3, 'Number of training epochs')
 flags.DEFINE_integer('batch_size', 8, 'Train/eval batch size')
 flags.DEFINE_integer('max_len', 512, 'Maximum input sequence length')
-flags.DEFINE_string('outptu_path', '', 'Output path for model and logs')
+flags.DEFINE_string('output_path', './model_logs', 'Output path for model and logs')
+flags.DEFINE_bool('do_train', True, 'Set flag for training')
+flags.DEFINE_bool('do_eval', True, 'Set flag for evaluation')
+flags.DEFINE_bool('do_test', False, 'Set flag for testing')
+flags.DEFINE_string('load_model_path', '', 'Path to load saved model')
 
 
 
@@ -36,10 +43,13 @@ def train_epoch(
     scheduler,
     n_examples,
     epoch_num, batch_size):
-  
+
   model = model.train()
   losses = []
   correct_predictions = 0
+
+  f1 = 0
+  batch_num = 0
   with tqdm(data_loader, unit="batch") as tepoch:
     for batch in tepoch:
       
@@ -67,6 +77,10 @@ def train_epoch(
       optimizer.step()
       scheduler.step()
       optimizer.zero_grad()
+      
+      f1 += f1_score(labels, preds)
+      batch_num += 1 
+
 
       
 
@@ -74,7 +88,7 @@ def train_epoch(
   
   mean_loss = np.mean(losses)
   accuracy = correct_predictions.double()/n_examples
-  return accuracy, mean_loss
+  return f1/batch_num, accuracy, mean_loss
 
 
 def eval(model, data_loader, loss_fn, device, n_examples):
@@ -82,6 +96,9 @@ def eval(model, data_loader, loss_fn, device, n_examples):
 
   losses = []
   correct_predictions = 0
+
+  f1 = 0
+  batch_num = 0
 
   with torch.no_grad():
     with tqdm(data_loader, unit="batch") as tepoch:
@@ -95,16 +112,25 @@ def eval(model, data_loader, loss_fn, device, n_examples):
         _, preds = torch.max(outputs, dim = 1)
 
         loss = loss_fn(outputs, labels)
+        
+        f1 += f1_score(labels, preds)
+        batch_num += 1 
 
         correct_predictions += torch.sum(preds == labels)
         losses.append(loss.item())
-  return correct_predictions.double()/n_examples, np.mean(losses)
+  return f1/batch_num, correct_predictions.double()/n_examples, np.mean(losses)
   
 
 
 
 def main(argv):
+  
+  timestr = time.strftime("%Y%m%d-%H%M%S")
+  logging.basicConfig(filename = os.path.join(FLAGS.output_path, timestr+'.log'), encoding='utf-8', level=logging.INFO)
+  logger = logging.getLogger("Assignment-1")
 
+  if not os.path.exists(FLAGS.output_path):
+    os.makedirs(FLAGS.output_path)
 
   train_path = os.path.join(FLAGS.data_path, "Train.csv")
   test_path = os.path.join(FLAGS.data_path, "Test.csv")
@@ -117,62 +143,91 @@ def main(argv):
 
   tokenizer = transformers.BertTokenizer.from_pretrained(FLAGS.pre_trained_model_name)
 
-  train_DataLoader = createDataLoader(train_texts, train_labels, tokenizer, FLAGS.max_len, FLAGS.batch_size)
-  test_DataLoader = createDataLoader(test_texts, test_labels, tokenizer, FLAGS.max_len, FLAGS.batch_size)
-  val_DataLoader = createDataLoader(val_texts, val_labels, tokenizer, FLAGS.max_len, FLAGS.batch_size)
+  if(FLAGS.do_train):
+    train_DataLoader = createDataLoader(train_texts, train_labels, tokenizer, FLAGS.max_len, FLAGS.batch_size)
+  if(FLAGS.do_test):
+    test_DataLoader = createDataLoader(test_texts, test_labels, tokenizer, FLAGS.max_len, FLAGS.batch_size)
+  if(FLAGS.do_eval):
+    val_DataLoader = createDataLoader(val_texts, val_labels, tokenizer, FLAGS.max_len, FLAGS.batch_size)
 
-  model = SentimentClassifier(n_classes = 2)
+  if(FLAGS.do_train):
+    model = SentimentClassifier(n_classes = 2)
 
-  optimizer = transformers.AdamW(model.parameters(), lr = FLAGS.lr, correct_bias = False)
+    optimizer = transformers.AdamW(model.parameters(), lr = FLAGS.lr, correct_bias = False)
 
-  total_steps = len(train_DataLoader)*FLAGS.epochs
-  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    total_steps = len(train_DataLoader)*FLAGS.epochs
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-  scheduler = get_linear_schedule_with_warmup(
-      optimizer,
-      num_warmup_steps = 0,
-      num_training_steps = total_steps
-  )
-
-  loss_fn = nn.CrossEntropyLoss().to(device)
-
-  history = defaultdict(list)
-  best_acc = 0
-  model = model.to(device)
-  #scheduler = scheduler.to(device)
-  #optimizer = optimizer.to(device)
-  for epoch in range(FLAGS.epochs):
-    train_epoch_acc, train_epoch_loss = train_epoch(
-        model, 
-        train_DataLoader,
-        loss_fn,
+    scheduler = get_linear_schedule_with_warmup(
         optimizer,
-        device,
-        scheduler,
-        len(train_texts),
-        epoch+1,
-        FLAGS.batch_size
+        num_warmup_steps = 0,
+        num_training_steps = total_steps
     )
 
-    print(f'Train loss: {train_epoch_loss} accuracy: {train_epoch_acc}')
+    loss_fn = nn.CrossEntropyLoss().to(device)
 
-    val_epoch_acc, val_epoch_loss = eval(
-        model, 
-        val_DataLoader,
-        loss_fn,
-        device,
-        len(val_texts)
-    )
-    print(f'Validation loss: {val_epoch_loss} accuracy: {val_epoch_acc}')
+    best_acc = 0
+    model = model.to(device)
+    #scheduler = scheduler.to(device)
+    #optimizer = optimizer.to(device)
+    for epoch in range(FLAGS.epochs):
+      train_epoch_f1, train_epoch_acc, train_epoch_loss = train_epoch(
+          model, 
+          train_DataLoader,
+          loss_fn,
+          optimizer,
+          device,
+          scheduler,
+          len(train_texts),
+          epoch+1,
+          FLAGS.batch_size
+      )
 
-    history['train_acc'].append(train_epoch_acc)
-    history['train_loss'].append(train_epoch_loss)
-    history['val_acc'].append(val_epoch_acc)
-    history['val_loss'].append(val_epoch_loss)
+      print(f'Train loss: {train_epoch_loss} accuracy: {train_epoch_acc} F1: {train_epoch_f1}')
+      logger.info(f'Train loss: {train_epoch_loss} accuracy: {train_epoch_acc} F1: {train_epoch_f1}')
 
-    if(val_epoch_acc>best_acc):
-      torch.save(model, 'model.pth')
-      best_acc = val_epoch_acc
+      if(FLAGS.do_eval):
+        val_epoch_f1, val_epoch_acc, val_epoch_loss = eval(
+            model, 
+            val_DataLoader,
+            loss_fn,
+            device,
+            len(val_texts)
+        )
+        print(f'Validation loss: {val_epoch_loss} accuracy: {val_epoch_acc} F1: {val_epoch_f1}')
+        logger.info(f'Validation loss: {val_epoch_loss} accuracy: {val_epoch_acc} F1: {val_epoch_f1}')
+
+        if(val_epoch_acc>best_acc):
+          torch.save(model.state_dict(), os.path.join(FLAGS.outut_path, 'best_model_state.bin'))
+          best_acc = val_epoch_acc
+      
+      else:
+        if(train_epoch_acc>best_acc):
+          torch.save(model.state_dict(), os.path.join(FLAGS.outut_path, 'best_model_state.bin'))
+          best_acc = train_epoch_acc
+
+        
+      
+
+  if(FLAGS.do_test):
+    
+    model = SentimentClassifier(n_classes = 2)
+
+    if not FLAGS.load_model_path:
+      model.load_state_dict(torch.load(os.path.join(FLAGS.output_path,'best_model_state.bin')))
+    else:
+      model.load_state_dict(torch.load(os.path.join(FLAGS.load_model_path,'best_model_state.bin')))
+
+    test_f1, test_acc, test_loss = eval(
+            model, 
+            test_DataLoader,
+            loss_fn,
+            device,
+            len(test_texts)
+        )
+    print(f'Test loss: {test_loss} accuracy: {test_acc} F1: {test_f1}')
+    logger.info(f'Test loss: {test_loss} accuracy: {test_acc} F1: {test_f1}')
+
 
 
 if __name__ == '__main__':
