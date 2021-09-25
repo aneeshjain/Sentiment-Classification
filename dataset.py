@@ -21,6 +21,7 @@ class IMDBReviewDataset(torch.utils.data.Dataset):
             add_special_tokens = True,
             padding='max_length',
             return_attention_mask = True,
+            truncation = True,
             return_token_type_ids = False,
             return_tensors = 'pt'
         )
