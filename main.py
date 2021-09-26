@@ -18,12 +18,15 @@ import logging
 import time
 
 
+logger = logging.getLogger("Assignment-1")
+logger.handlers = []
+
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('pre_trained_model_name', 'bert-base-uncased', 'Name of the pre-trained model to use')
-flags.DEFINE_string('data_path', '/Users/aneesh/Desktop/Grad School/VIRGINIA TECH DOCS/Courses/NLP/HW1/imdb dataset', 'Path to dataset')
+flags.DEFINE_string('data_path', './imdb dataset', 'Path to dataset')
 flags.DEFINE_float('lr', 2e-5, 'Learning Rate')
-flags.DEFINE_integer('epochs', 3, 'Number of training epochs')
+flags.DEFINE_integer('epochs', 5, 'Number of training epochs')
 flags.DEFINE_integer('batch_size', 8, 'Train/eval batch size')
 flags.DEFINE_integer('max_len', 512, 'Maximum input sequence length')
 flags.DEFINE_string('output_path', './model_logs', 'Output path for model and logs')
@@ -124,10 +127,11 @@ def eval(model, data_loader, loss_fn, device, n_examples):
 
 
 def main(argv):
-  
   timestr = time.strftime("%Y%m%d-%H%M%S")
-  logging.basicConfig(filename = os.path.join(FLAGS.output_path, timestr+'.log'), encoding='utf-8', level=logging.INFO)
-  logger = logging.getLogger("Assignment-1")
+  fh = logging.FileHandler(os.path.join(FLAGS.output_path, timestr+".log"))
+  fh.setLevel(logging.INFO)
+  logger.addHandler(fh)
+
 
   if not os.path.exists(FLAGS.output_path):
     os.makedirs(FLAGS.output_path)
@@ -139,9 +143,11 @@ def main(argv):
   train_texts, train_labels = read_imdb(train_path)
   test_texts, test_labels = read_imdb(test_path)
   val_texts, val_labels = read_imdb(val_path)
+  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
   tokenizer = transformers.BertTokenizer.from_pretrained(FLAGS.pre_trained_model_name)
+  loss_fn = nn.CrossEntropyLoss().to(device)
 
   if(FLAGS.do_train):
     train_DataLoader = createDataLoader(train_texts, train_labels, tokenizer, FLAGS.max_len, FLAGS.batch_size)
@@ -156,7 +162,6 @@ def main(argv):
     optimizer = transformers.AdamW(model.parameters(), lr = FLAGS.lr, correct_bias = False)
 
     total_steps = len(train_DataLoader)*FLAGS.epochs
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
@@ -164,7 +169,7 @@ def main(argv):
         num_training_steps = total_steps
     )
 
-    loss_fn = nn.CrossEntropyLoss().to(device)
+    
 
     best_acc = 0
     model = model.to(device)
@@ -198,12 +203,12 @@ def main(argv):
         logger.info(f'Validation loss: {val_epoch_loss} accuracy: {val_epoch_acc} F1: {val_epoch_f1}')
 
         if(val_epoch_acc>best_acc):
-          torch.save(model.state_dict(), os.path.join(FLAGS.outut_path, 'best_model_state.bin'))
+          torch.save(model.state_dict(), os.path.join(FLAGS.output_path, 'best_model_state.bin'))
           best_acc = val_epoch_acc
       
       else:
         if(train_epoch_acc>best_acc):
-          torch.save(model.state_dict(), os.path.join(FLAGS.outut_path, 'best_model_state.bin'))
+          torch.save(model.state_dict(), os.path.join(FLAGS.output_path, 'best_model_state.bin'))
           best_acc = train_epoch_acc
 
         
@@ -212,6 +217,7 @@ def main(argv):
   if(FLAGS.do_test):
     
     model = SentimentClassifier(n_classes = 2)
+    model = model.to(device)
 
     if not FLAGS.load_model_path:
       model.load_state_dict(torch.load(os.path.join(FLAGS.output_path,'best_model_state.bin')))
