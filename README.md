@@ -11,7 +11,7 @@
 ### Packages:
 * torch
 * transformers
-* sklearn
+* sklearn (for f1 score)
 * absl (for flags)
 * tqdm (for progress bar tracking)
 
