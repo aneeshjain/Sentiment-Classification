@@ -1,6 +1,5 @@
 from absl import app
 from absl import flags
-from model import SentimentClassifier
 from tqdm import tqdm
 from transformers import get_linear_schedule_with_warmup
 import numpy as np
@@ -10,7 +9,7 @@ from torch import nn, optim
 from torch.utils import data
 from collections import defaultdict
 import os
-from model import SentimentClassifier
+from model import BERTSentimentAnalyser
 from dataset import createDataLoader
 from utils import read_imdb
 from sklearn.metrics import f1_score
@@ -33,11 +32,11 @@ flags.DEFINE_string('output_path', './model_logs', 'Output path for model and lo
 flags.DEFINE_bool('do_train', True, 'Set flag for training')
 flags.DEFINE_bool('do_eval', True, 'Set flag for evaluation')
 flags.DEFINE_bool('do_test', False, 'Set flag for testing')
-flags.DEFINE_string('load_model_path', '', 'Path to load saved model')
+flags.DEFINE_string('load_model_path', '', 'Path to load saved model for testing')
 
 
 
-def train_epoch(
+def train_loop(
     model, 
     data_loader,
     loss_fn,
@@ -81,7 +80,7 @@ def train_epoch(
       scheduler.step()
       optimizer.zero_grad()
       
-      f1 += f1_score(labels, preds)
+      f1 += f1_score(labels.cpu(), preds.cpu())
       batch_num += 1 
 
 
@@ -116,7 +115,7 @@ def eval(model, data_loader, loss_fn, device, n_examples):
 
         loss = loss_fn(outputs, labels)
         
-        f1 += f1_score(labels, preds)
+        f1 += f1_score(labels.cpu(), preds.cpu())
         batch_num += 1 
 
         correct_predictions += torch.sum(preds == labels)
@@ -127,14 +126,17 @@ def eval(model, data_loader, loss_fn, device, n_examples):
 
 
 def main(argv):
+
+  if not os.path.exists(FLAGS.output_path):
+    os.makedirs(FLAGS.output_path)
+
   timestr = time.strftime("%Y%m%d-%H%M%S")
   fh = logging.FileHandler(os.path.join(FLAGS.output_path, timestr+".log"))
   fh.setLevel(logging.INFO)
   logger.addHandler(fh)
 
 
-  if not os.path.exists(FLAGS.output_path):
-    os.makedirs(FLAGS.output_path)
+  
 
   train_path = os.path.join(FLAGS.data_path, "Train.csv")
   test_path = os.path.join(FLAGS.data_path, "Test.csv")
@@ -157,7 +159,7 @@ def main(argv):
     val_DataLoader = createDataLoader(val_texts, val_labels, tokenizer, FLAGS.max_len, FLAGS.batch_size)
 
   if(FLAGS.do_train):
-    model = SentimentClassifier(n_classes = 2)
+    model = BERTSentimentAnalyser()
 
     optimizer = transformers.AdamW(model.parameters(), lr = FLAGS.lr, correct_bias = False)
 
@@ -171,12 +173,12 @@ def main(argv):
 
     
 
-    best_acc = 0
+    best_f1 = 0
     model = model.to(device)
     #scheduler = scheduler.to(device)
     #optimizer = optimizer.to(device)
     for epoch in range(FLAGS.epochs):
-      train_epoch_f1, train_epoch_acc, train_epoch_loss = train_epoch(
+      train_epoch_f1, train_epoch_acc, train_epoch_loss = train_loop(
           model, 
           train_DataLoader,
           loss_fn,
@@ -202,21 +204,21 @@ def main(argv):
         print(f'Validation loss: {val_epoch_loss} accuracy: {val_epoch_acc} F1: {val_epoch_f1}')
         logger.info(f'Validation loss: {val_epoch_loss} accuracy: {val_epoch_acc} F1: {val_epoch_f1}')
 
-        if(val_epoch_acc>best_acc):
+        if(val_epoch_f1>best_f1):
           torch.save(model.state_dict(), os.path.join(FLAGS.output_path, 'best_model_state.bin'))
-          best_acc = val_epoch_acc
+          best_f1 = val_epoch_f1
       
       else:
-        if(train_epoch_acc>best_acc):
+        if(train_epoch_f1>best_f1):
           torch.save(model.state_dict(), os.path.join(FLAGS.output_path, 'best_model_state.bin'))
-          best_acc = train_epoch_acc
+          best_f1 = train_epoch_f1
 
         
       
 
   if(FLAGS.do_test):
     
-    model = SentimentClassifier(n_classes = 2)
+    model = BERTSentimentAnalyser()
     model = model.to(device)
 
     if not FLAGS.load_model_path:
