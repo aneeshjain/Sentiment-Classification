@@ -1,4 +1,4 @@
-## CS 5984 Assignment 1: IMDB Review Semantic Analysis with BERT
+## IMDB Review Semantic Analysis with BERT
 
 #### This folder contains the following files and directories and files:
 
