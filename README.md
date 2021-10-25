@@ -70,11 +70,11 @@ The most important among these are:
 #### Training with validation and testing
 
 ```
-python3 main.py --do_train --do_eval --do_test --data_path /home/aneesh/SentimentClassification/HW1/imdb\ dataset --epochs 1
+python3 main.py --do_train --do_eval --do_test --data_path ./imdb\ dataset --epochs 1
 ```
 
 #### Only testing
 ```
-python3 main.py --nodo_train --nodo_eval --do_test --data_path /home/aneesh/SentimentClassification/HW1/imdb\ dataset --load_model_path ./model_logs
+python3 main.py --nodo_train --nodo_eval --do_test --data_path ./imdb\ dataset --load_model_path ./model_logs
 ```
 
